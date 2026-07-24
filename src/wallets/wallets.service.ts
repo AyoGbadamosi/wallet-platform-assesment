@@ -140,6 +140,13 @@ export class WalletsService {
       throw new BadRequestException('Cannot transfer to the same wallet');
     }
 
+    if (dto.idempotencyKey) {
+      const existingTransfer = await this.transferModel.findOne({ idempotencyKey: dto.idempotencyKey });
+      if (existingTransfer) {
+        return existingTransfer;
+      }
+    }
+
     const [fromWallet, toWallet] = await Promise.all([
       this.walletModel.findById(dto.fromWalletId),
       this.walletModel.findById(dto.toWalletId),
