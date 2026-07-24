@@ -17,7 +17,7 @@ describe('TransferEventsConsumer', () => {
 
   beforeEach(async () => {
     transferModel = { findById: jest.fn() };
-    walletModel = { findById: jest.fn() };
+    walletModel = { findById: jest.fn(), findOneAndUpdate: jest.fn() };
     transactionModel = { create: jest.fn() };
     ledgerService = { recordCredit: jest.fn() };
 
@@ -45,9 +45,9 @@ describe('TransferEventsConsumer', () => {
       save: jest.fn(),
       status: TransferStatus.PENDING,
     };
-    const toWallet = { _id: new Types.ObjectId(), id: 'wallet-2', balance: 100, save: jest.fn() };
+    const toWallet = { _id: new Types.ObjectId(), id: 'wallet-2', balance: 125, save: jest.fn() };
     transferModel.findById.mockResolvedValue(transfer);
-    walletModel.findById.mockResolvedValue(toWallet);
+    walletModel.findOneAndUpdate.mockResolvedValue(toWallet);
     const creditTransaction = { _id: new Types.ObjectId() };
     transactionModel.create.mockResolvedValue([creditTransaction]);
 
@@ -58,8 +58,11 @@ describe('TransferEventsConsumer', () => {
       amount: 25,
     });
 
-    expect(toWallet.balance).toBe(125);
-    expect(toWallet.save).toHaveBeenCalled();
+    expect(walletModel.findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: toWallet._id.toString() },
+      { $inc: { balance: 25, version: 1 } },
+      { new: true },
+    );
     expect(transactionModel.create).toHaveBeenCalledWith([
       expect.objectContaining({ type: TransactionType.TRANSFER_IN, amount: 25, balanceAfter: 125 }),
     ]);

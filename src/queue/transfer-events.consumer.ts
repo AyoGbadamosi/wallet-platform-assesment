@@ -64,14 +64,21 @@ export class TransferEventsConsumer implements OnModuleInit {
       return;
     }
 
-    const toWallet = await this.walletModel.findById(event.toWalletId);
+    if (transfer.status === TransferStatus.COMPLETED) {
+      this.logger.log(`Transfer ${event.transferId} already completed, skipping`);
+      return;
+    }
+
+    const toWallet = await this.walletModel.findOneAndUpdate(
+      { _id: event.toWalletId },
+      { $inc: { balance: event.amount, version: 1 } },
+      { new: true },
+    );
+
     if (!toWallet) {
       this.logger.warn(`Destination wallet ${event.toWalletId} not found, skipping`);
       return;
     }
-
-    toWallet.balance += event.amount;
-    await toWallet.save();
 
     const [creditTransaction] = await this.transactionModel.create([
       {
