@@ -88,7 +88,7 @@ export class WalletsService {
   async deposit(id: string, dto: DepositDto) {
     const wallet = await this.walletModel.findByIdAndUpdate(
       id,
-      { $inc: { balance: dto.amount } },
+      { $inc: { balance: dto.amount, version: 1 } },
       { new: true },
     );
 
@@ -110,17 +110,19 @@ export class WalletsService {
   }
 
   async withdraw(id: string, dto: WithdrawDto) {
-    const wallet = await this.walletModel.findById(id);
-    if (!wallet) {
-      throw new NotFoundException(`Wallet ${id} not found`);
-    }
+    const wallet = await this.walletModel.findOneAndUpdate(
+      { _id: id, balance: { $gte: dto.amount } },
+      { $inc: { balance: -dto.amount, version: 1 } },
+      { new: true },
+    );
 
-    if (wallet.balance < dto.amount) {
+    if (!wallet) {
+      const exists = await this.walletModel.findById(id);
+      if (!exists) {
+        throw new NotFoundException(`Wallet ${id} not found`);
+      }
       throw new BadRequestException('Insufficient balance');
     }
-
-    wallet.balance -= dto.amount;
-    await wallet.save();
 
     const transaction = await this.transactionsService.create({
       walletId: wallet.id,
@@ -146,25 +148,29 @@ export class WalletsService {
         return existingTransfer;
       }
     }
-
-    const [fromWallet, toWallet] = await Promise.all([
-      this.walletModel.findById(dto.fromWalletId),
-      this.walletModel.findById(dto.toWalletId),
-    ]);
-
-    if (!fromWallet || !toWallet) {
-      throw new NotFoundException('Wallet not found');
-    }
-
-    if (fromWallet.balance < dto.amount) {
-      throw new BadRequestException('Insufficient balance');
-    }
-
+    
     const session = await this.connection.startSession();
     let transfer!: TransferDocument;
 
     try {
       await session.withTransaction(async () => {
+        const fromWallet = await this.walletModel.findOneAndUpdate(
+          { _id: dto.fromWalletId, balance: { $gte: dto.amount } },
+          { $inc: { balance: -dto.amount, version: 1 } },
+          { new: true, session },
+        );
+
+        if (!fromWallet) {
+          const exists = await this.walletModel.findById(dto.fromWalletId).session(session);
+          if (!exists) throw new NotFoundException('Wallet not found');
+          throw new BadRequestException('Insufficient balance');
+        }
+
+        const toWallet = await this.walletModel.findById(dto.toWalletId).session(session);
+        if (!toWallet) {
+          throw new NotFoundException('Wallet not found');
+        }
+
         [transfer] = await this.transferModel.create(
           [
             {
@@ -177,9 +183,6 @@ export class WalletsService {
           ],
           { session },
         );
-
-        fromWallet.balance -= dto.amount;
-        await fromWallet.save({ session });
 
         const [debitTransaction] = await this.transactionModel.create(
           [
