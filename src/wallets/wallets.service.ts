@@ -1,6 +1,6 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
-import { Connection, Model } from 'mongoose';
+import { Connection, Model, Types } from 'mongoose';
 import { LedgerEntry, LedgerEntryDocument } from '../ledger/schemas/ledger-entry.schema';
 import { LedgerService } from '../ledger/ledger.service';
 import { OutboxService } from '../outbox/outbox.service';
@@ -235,36 +235,56 @@ export class WalletsService {
       throw new NotFoundException(`Wallet ${id} not found`);
     }
 
-    const transactions = await this.transactionModel
+    const [stats] = await this.transactionModel.aggregate([
+      { $match: { walletId: new Types.ObjectId(id) } },
+      {
+        $group: {
+          _id: null,
+          totalDeposited: {
+            $sum: {
+              $cond: [
+                { $in: ['$type', [TransactionType.DEPOSIT, TransactionType.TRANSFER_IN]] },
+                '$amount',
+                0,
+              ],
+            },
+          },
+          totalWithdrawn: {
+            $sum: {
+              $cond: [
+                { $in: ['$type', [TransactionType.WITHDRAWAL, TransactionType.TRANSFER_OUT]] },
+                '$amount',
+                0,
+              ],
+            },
+          },
+          transactionCount: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const recentTransactions = await this.transactionModel
       .find({ walletId: id })
       .sort({ createdAt: -1 })
+      .limit(10)
       .exec();
 
-    let totalDeposited = 0;
-    let totalWithdrawn = 0;
-    const recentActivity: Array<{
-      transaction: TransactionDocument;
-      entries: LedgerEntryDocument[];
-    }> = [];
+    const transactionIds = recentTransactions.map((t) => t._id);
+    const ledgerEntries = await this.ledgerEntryModel
+      .find({ transactionId: { $in: transactionIds } })
+      .exec();
 
-    for (const txn of transactions) {
-      const entries = await this.ledgerEntryModel.find({ transactionId: txn._id }).exec();
-
-      if (txn.type === TransactionType.DEPOSIT || txn.type === TransactionType.TRANSFER_IN) {
-        totalDeposited += txn.amount;
-      } else {
-        totalWithdrawn += txn.amount;
-      }
-
-      recentActivity.push({ transaction: txn, entries });
-    }
+    const recentActivity = recentTransactions.map((txn) => ({
+      transaction: txn,
+      entries: ledgerEntries.filter((e) => e.transactionId.toString() === txn._id.toString()),
+    }));
 
     return {
       wallet,
-      totalDeposited,
-      totalWithdrawn,
-      transactionCount: transactions.length,
-      recentActivity: recentActivity.slice(0, 10),
+      totalDeposited: stats?.totalDeposited ?? 0,
+      totalWithdrawn: stats?.totalWithdrawn ?? 0,
+      transactionCount: stats?.transactionCount ?? 0,
+      recentActivity,
     };
   }
 }

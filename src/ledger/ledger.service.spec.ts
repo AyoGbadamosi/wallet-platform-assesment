@@ -66,15 +66,9 @@ describe('LedgerService', () => {
   });
 
   it('computes the net balance from a mix of debit and credit entries', async () => {
-    ledgerEntryModel.find.mockReturnValue({
-      exec: jest.fn().mockResolvedValue([
-        { direction: LedgerEntryDirection.CREDIT, amount: 500 },
-        { direction: LedgerEntryDirection.DEBIT, amount: 120 },
-        { direction: LedgerEntryDirection.CREDIT, amount: 30 },
-      ]),
-    });
+    ledgerEntryModel.aggregate.mockResolvedValue([{ net: 410 }]);
 
-    const balance = await service.computeBalanceFromLedger('wallet-1');
+    const balance = await service.computeBalanceFromLedger(new Types.ObjectId().toString());
 
     expect(balance).toBe(410);
   });

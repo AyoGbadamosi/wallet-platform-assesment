@@ -80,12 +80,7 @@ export class LedgerService {
    * reconciliation against the denormalized Wallet.balance field.
    */
   async computeBalanceFromLedger(walletId: string): Promise<number> {
-    const entries = await this.ledgerEntryModel.find({ walletId }).exec();
-    return entries.reduce((total, entry) => {
-      return entry.direction === LedgerEntryDirection.CREDIT
-        ? total + entry.amount
-        : total - entry.amount;
-    }, 0);
+    return this.aggregateNetByWallet(walletId);
   }
 
   async aggregateNetByWallet(walletId: string): Promise<number> {
