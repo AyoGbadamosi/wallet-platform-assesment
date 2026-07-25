@@ -105,6 +105,7 @@ export class WalletsService {
     });
 
     await this.ledgerService.recordCredit(wallet._id, transaction._id, dto.amount, wallet.balance);
+    await this.redisService.invalidateBalance(wallet.id);
 
     return wallet;
   }
@@ -133,6 +134,7 @@ export class WalletsService {
     });
 
     await this.ledgerService.recordDebit(wallet._id, transaction._id, dto.amount, wallet.balance);
+    await this.redisService.invalidateBalance(wallet.id);
 
     return wallet;
   }
@@ -221,6 +223,8 @@ export class WalletsService {
     } finally {
       await session.endSession();
     }
+
+    await this.redisService.invalidateBalance(dto.fromWalletId);
 
     return transfer;
   }

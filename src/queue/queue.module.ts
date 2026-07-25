@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { LedgerModule } from '../ledger/ledger.module';
+import { RedisModule } from '../redis/redis.module';
 import { Transaction, TransactionSchema } from '../transactions/schemas/transaction.schema';
 import { Transfer, TransferSchema } from '../wallets/schemas/transfer.schema';
 import { Wallet, WalletSchema } from '../wallets/schemas/wallet.schema';
@@ -15,6 +16,7 @@ import { TransferEventsConsumer } from './transfer-events.consumer';
       { name: Transaction.name, schema: TransactionSchema },
     ]),
     LedgerModule,
+    RedisModule,
   ],
   providers: [RabbitMQService, TransferEventsConsumer],
   exports: [RabbitMQService],

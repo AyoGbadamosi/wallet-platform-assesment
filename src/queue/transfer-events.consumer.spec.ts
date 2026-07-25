@@ -5,6 +5,7 @@ import { LedgerService } from '../ledger/ledger.service';
 import { Transaction, TransactionType } from '../transactions/schemas/transaction.schema';
 import { Transfer, TransferStatus } from '../wallets/schemas/transfer.schema';
 import { Wallet } from '../wallets/schemas/wallet.schema';
+import { RedisService } from '../redis/redis.service';
 import { RabbitMQService } from './rabbitmq.service';
 import { TransferEventsConsumer } from './transfer-events.consumer';
 
@@ -14,12 +15,14 @@ describe('TransferEventsConsumer', () => {
   let walletModel: any;
   let transactionModel: any;
   let ledgerService: any;
+  let redisService: any;
 
   beforeEach(async () => {
     transferModel = { findById: jest.fn() };
     walletModel = { findById: jest.fn(), findOneAndUpdate: jest.fn() };
     transactionModel = { create: jest.fn() };
     ledgerService = { recordCredit: jest.fn() };
+    redisService = { invalidateBalance: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -32,6 +35,7 @@ describe('TransferEventsConsumer', () => {
         { provide: getModelToken(Wallet.name), useValue: walletModel },
         { provide: getModelToken(Transaction.name), useValue: transactionModel },
         { provide: LedgerService, useValue: ledgerService },
+        { provide: RedisService, useValue: redisService },
       ],
     }).compile();
 
@@ -74,6 +78,7 @@ describe('TransferEventsConsumer', () => {
     );
     expect(transfer.status).toBe(TransferStatus.COMPLETED);
     expect(transfer.save).toHaveBeenCalled();
+    expect(redisService.invalidateBalance).toHaveBeenCalledWith(toWallet.id);
   });
 
   it('skips processing when the transfer no longer exists', async () => {

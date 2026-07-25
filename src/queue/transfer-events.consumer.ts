@@ -3,6 +3,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { ConsumeMessage } from 'amqplib';
 import { Model } from 'mongoose';
 import { LedgerService } from '../ledger/ledger.service';
+import { RedisService } from '../redis/redis.service';
 import {
   Transaction,
   TransactionDocument,
@@ -31,6 +32,7 @@ export class TransferEventsConsumer implements OnModuleInit {
     @InjectModel(Transaction.name)
     private readonly transactionModel: Model<TransactionDocument>,
     private readonly ledgerService: LedgerService,
+    private readonly redisService: RedisService,
   ) {}
 
   onModuleInit() {
@@ -101,6 +103,8 @@ export class TransferEventsConsumer implements OnModuleInit {
 
     transfer.status = TransferStatus.COMPLETED;
     await transfer.save();
+
+    await this.redisService.invalidateBalance(toWallet.id);
 
     this.logger.log(`Transfer ${transfer.id} completed for wallet ${toWallet.id}`);
   }
