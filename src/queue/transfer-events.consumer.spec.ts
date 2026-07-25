@@ -1,4 +1,4 @@
-import { getModelToken } from '@nestjs/mongoose';
+import { getConnectionToken, getModelToken } from '@nestjs/mongoose';
 import { Test, TestingModule } from '@nestjs/testing';
 import { Types } from 'mongoose';
 import { LedgerService } from '../ledger/ledger.service';
@@ -17,9 +17,14 @@ describe('TransferEventsConsumer', () => {
   let ledgerService: any;
   let redisService: any;
 
+  const mockSession = {
+    withTransaction: jest.fn(async (fn: () => Promise<unknown>) => fn()),
+    endSession: jest.fn(),
+  };
+
   beforeEach(async () => {
-    transferModel = { findById: jest.fn() };
-    walletModel = { findById: jest.fn(), findOneAndUpdate: jest.fn() };
+    transferModel = { findOneAndUpdate: jest.fn() };
+    walletModel = { findOneAndUpdate: jest.fn() };
     transactionModel = { create: jest.fn() };
     ledgerService = { recordCredit: jest.fn() };
     redisService = { invalidateBalance: jest.fn() };
@@ -30,6 +35,10 @@ describe('TransferEventsConsumer', () => {
         {
           provide: RabbitMQService,
           useValue: { getChannelWrapper: jest.fn(), getTransferQueue: jest.fn() },
+        },
+        {
+          provide: getConnectionToken(),
+          useValue: { startSession: jest.fn().mockResolvedValue(mockSession) },
         },
         { provide: getModelToken(Transfer.name), useValue: transferModel },
         { provide: getModelToken(Wallet.name), useValue: walletModel },
@@ -42,15 +51,16 @@ describe('TransferEventsConsumer', () => {
     consumer = module.get(TransferEventsConsumer);
   });
 
+  afterEach(() => jest.clearAllMocks());
+
   it('credits the destination wallet and marks the transfer completed', async () => {
     const transfer = {
       _id: new Types.ObjectId(),
       id: 'transfer-1',
-      save: jest.fn(),
-      status: TransferStatus.PENDING,
+      fromWalletId: 'wallet-1',
     };
-    const toWallet = { _id: new Types.ObjectId(), id: 'wallet-2', balance: 125, save: jest.fn() };
-    transferModel.findById.mockResolvedValue(transfer);
+    const toWallet = { _id: new Types.ObjectId(), id: 'wallet-2', balance: 125 };
+    transferModel.findOneAndUpdate.mockResolvedValue(transfer);
     walletModel.findOneAndUpdate.mockResolvedValue(toWallet);
     const creditTransaction = { _id: new Types.ObjectId() };
     transactionModel.create.mockResolvedValue([creditTransaction]);
@@ -62,35 +72,43 @@ describe('TransferEventsConsumer', () => {
       amount: 25,
     });
 
+    expect(transferModel.findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: transfer._id.toString(), status: TransferStatus.PENDING },
+      { status: TransferStatus.COMPLETED },
+      { new: true, session: mockSession },
+    );
     expect(walletModel.findOneAndUpdate).toHaveBeenCalledWith(
       { _id: toWallet._id.toString() },
       { $inc: { balance: 25, version: 1 } },
-      { new: true },
+      { new: true, session: mockSession },
     );
-    expect(transactionModel.create).toHaveBeenCalledWith([
-      expect.objectContaining({ type: TransactionType.TRANSFER_IN, amount: 25, balanceAfter: 125 }),
-    ]);
+    expect(transactionModel.create).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({ type: TransactionType.TRANSFER_IN, amount: 25, balanceAfter: 125 }),
+      ],
+      { session: mockSession },
+    );
     expect(ledgerService.recordCredit).toHaveBeenCalledWith(
       toWallet._id,
       creditTransaction._id,
       25,
       125,
+      mockSession,
     );
-    expect(transfer.status).toBe(TransferStatus.COMPLETED);
-    expect(transfer.save).toHaveBeenCalled();
     expect(redisService.invalidateBalance).toHaveBeenCalledWith(toWallet.id);
   });
 
-  it('skips processing when the transfer no longer exists', async () => {
-    transferModel.findById.mockResolvedValue(null);
+  it('skips processing when the transfer is not found or no longer PENDING', async () => {
+    transferModel.findOneAndUpdate.mockResolvedValue(null);
 
     await (consumer as any).completeTransfer({
-      transferId: 'missing',
+      transferId: 'missing-or-completed',
       fromWalletId: 'wallet-1',
       toWalletId: 'wallet-2',
       amount: 25,
     });
 
-    expect(walletModel.findById).not.toHaveBeenCalled();
+    expect(walletModel.findOneAndUpdate).not.toHaveBeenCalled();
+    expect(transactionModel.create).not.toHaveBeenCalled();
   });
 });

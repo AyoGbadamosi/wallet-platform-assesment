@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { OutboxModule } from '../outbox/outbox.module';
 import { QueueModule } from '../queue/queue.module';
+import { WalletsModule } from '../wallets/wallets.module';
 import { Transfer, TransferSchema } from '../wallets/schemas/transfer.schema';
 import { Wallet, WalletSchema } from '../wallets/schemas/wallet.schema';
 import { OutboxRelayWorker } from './outbox-relay.worker';
@@ -16,6 +17,7 @@ import { WalletEventsWorker } from './wallet-events.worker';
     ]),
     OutboxModule,
     QueueModule,
+    WalletsModule,
   ],
   providers: [OutboxRelayWorker, PendingTransferWorker, WalletEventsWorker],
 })

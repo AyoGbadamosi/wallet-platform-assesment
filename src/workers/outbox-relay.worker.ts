@@ -21,7 +21,8 @@ export class OutboxRelayWorker implements OnModuleInit, OnModuleDestroy {
   }
 
   private async relay() {
-    if (this.running) {
+    // Prevent execution if we are already running or if the app/Mongoose is tearing down
+    if (this.running || (this.outboxService as any).outboxModel?.db?.readyState !== 1) {
       return;
     }
     this.running = true;

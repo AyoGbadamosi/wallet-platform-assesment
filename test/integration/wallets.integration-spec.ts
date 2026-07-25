@@ -18,6 +18,7 @@ describe('Wallets (integration)', () => {
   });
 
   afterAll(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 500));
     await app.close();
   });
 

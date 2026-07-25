@@ -40,6 +40,7 @@ describe('WalletsService', () => {
     transferModel = {
       create: jest.fn(),
       findOne: jest.fn(),
+      findOneAndUpdate: jest.fn(),
     };
     transactionModel = {
       create: jest.fn(),
@@ -347,6 +348,77 @@ describe('WalletsService', () => {
 
       expect(mockSession.endSession).toHaveBeenCalled();
       expect(rabbitMQService.publish).not.toHaveBeenCalled();
+    });
+  });
+  describe('refundTransfer', () => {
+    it('safely refunds a stuck pending transfer', async () => {
+      const transferId = new Types.ObjectId().toString();
+      const fromWalletId = new Types.ObjectId().toString();
+      const mockTransfer = {
+        _id: transferId,
+        fromWalletId: fromWalletId,
+        amount: 50,
+      };
+
+      const mockWallet = {
+        _id: fromWalletId,
+        id: fromWalletId,
+        balance: 150,
+      };
+
+      const mockRefundTransaction = {
+        _id: new Types.ObjectId(),
+      };
+
+      transferModel.findOneAndUpdate.mockResolvedValue(mockTransfer);
+      walletModel.findByIdAndUpdate.mockResolvedValue(mockWallet);
+      transactionModel.create.mockResolvedValue([mockRefundTransaction]);
+
+      await service.refundTransfer(transferId);
+
+      // Verify the atomic guard was used
+      expect(transferModel.findOneAndUpdate).toHaveBeenCalledWith(
+        { _id: transferId, status: 'PENDING' },
+        { status: 'FAILED', failureReason: 'Timeout' },
+        { new: true, session: mockSession },
+      );
+
+      // Verify sender was credited
+      expect(walletModel.findByIdAndUpdate).toHaveBeenCalledWith(
+        fromWalletId,
+        { $inc: { balance: 50, version: 1 } },
+        { new: true, session: mockSession },
+      );
+
+      // Verify a TRANSFER_IN refund transaction was created
+      expect(transactionModel.create).toHaveBeenCalledWith(
+        [
+          expect.objectContaining({
+            type: TransactionType.TRANSFER_IN,
+            amount: 50,
+            reference: `REFUND-${transferId}`,
+          }),
+        ],
+        { session: mockSession },
+      );
+
+      // Verify ledger entry
+      expect(ledgerService.recordCredit).toHaveBeenCalledWith(
+        mockWallet._id,
+        mockRefundTransaction._id,
+        50,
+        150,
+        mockSession,
+      );
+    });
+
+    it('aborts silently if the transfer is no longer pending', async () => {
+      transferModel.findOneAndUpdate.mockResolvedValue(null);
+
+      await service.refundTransfer('missing-or-completed-id');
+
+      expect(walletModel.findByIdAndUpdate).not.toHaveBeenCalled();
+      expect(transactionModel.create).not.toHaveBeenCalled();
     });
   });
 });

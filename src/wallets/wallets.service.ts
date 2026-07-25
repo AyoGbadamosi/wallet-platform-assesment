@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import { Connection, Model, Types } from 'mongoose';
 import { LedgerEntry, LedgerEntryDocument } from '../ledger/schemas/ledger-entry.schema';
@@ -145,12 +145,14 @@ export class WalletsService {
     }
 
     if (dto.idempotencyKey) {
-      const existingTransfer = await this.transferModel.findOne({ idempotencyKey: dto.idempotencyKey });
+      const existingTransfer = await this.transferModel.findOne({
+        idempotencyKey: dto.idempotencyKey,
+      });
       if (existingTransfer) {
         return existingTransfer;
       }
     }
-    
+
     const session = await this.connection.startSession();
     let transfer!: TransferDocument;
 
@@ -227,6 +229,58 @@ export class WalletsService {
     await this.redisService.invalidateBalance(dto.fromWalletId);
 
     return transfer;
+  }
+
+  async refundTransfer(transferId: string) {
+    const session = await this.connection.startSession();
+    try {
+      await session.withTransaction(async () => {
+        // Atomic race-condition guard: Only update if it's currently PENDING.
+        const transfer = await this.transferModel.findOneAndUpdate(
+          { _id: transferId, status: TransferStatus.PENDING },
+          { status: TransferStatus.FAILED, failureReason: 'Timeout' },
+          { new: true, session },
+        );
+
+        // If null, it was already processed by the consumer (or doesn't exist).
+        if (!transfer) return;
+
+        const wallet = await this.walletModel.findByIdAndUpdate(
+          transfer.fromWalletId,
+          { $inc: { balance: transfer.amount, version: 1 } },
+          { new: true, session },
+        );
+
+        if (!wallet) throw new NotFoundException('Wallet not found');
+
+        const [refundTransaction] = await this.transactionModel.create(
+          [
+            {
+              walletId: wallet._id,
+              type: TransactionType.TRANSFER_IN,
+              amount: transfer.amount,
+              status: TransactionStatus.COMPLETED,
+              balanceAfter: wallet.balance,
+              transferId: transfer._id,
+              reference: `REFUND-${transfer._id}`,
+            },
+          ],
+          { session },
+        );
+
+        await this.ledgerService.recordCredit(
+          wallet._id,
+          refundTransaction._id,
+          transfer.amount,
+          wallet.balance,
+          session,
+        );
+
+        await this.redisService.invalidateBalance(wallet.id);
+      });
+    } finally {
+      await session.endSession();
+    }
   }
 
   async getDashboard(id: string) {

@@ -30,6 +30,7 @@ describe('Transfer flow (integration)', () => {
   });
 
   afterAll(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 500));
     await app.close();
   });
 
