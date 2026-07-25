@@ -13,6 +13,8 @@ import {
 import { Transfer, TransferDocument, TransferStatus } from '../wallets/schemas/transfer.schema';
 import { Wallet, WalletDocument } from '../wallets/schemas/wallet.schema';
 import { RabbitMQService } from './rabbitmq.service';
+import { v4 as uuidv4 } from 'uuid';
+import { asyncLocalStorage } from '../common/logger/cls';
 
 export interface TransferInitiatedEvent {
   transferId: string;
@@ -50,14 +52,18 @@ export class TransferEventsConsumer implements OnModuleInit {
       return;
     }
 
-    try {
-      const event: TransferInitiatedEvent = JSON.parse(message.content.toString());
-      await this.completeTransfer(event);
-      channel.ack(message);
-    } catch (error) {
-      this.logger.error(`Failed to process transfer event: ${(error as Error).message}`);
-      channel.ack(message);
-    }
+    const correlationId = message.properties.headers?.['x-correlation-id'] || uuidv4();
+
+    asyncLocalStorage.run({ correlationId }, async () => {
+      try {
+        const event: TransferInitiatedEvent = JSON.parse(message.content.toString());
+        await this.completeTransfer(event);
+        channel.ack(message);
+      } catch (error) {
+        this.logger.error(`Failed to process transfer event: ${(error as Error).message}`);
+        channel.ack(message);
+      }
+    });
   }
 
   private async completeTransfer(event: TransferInitiatedEvent) {

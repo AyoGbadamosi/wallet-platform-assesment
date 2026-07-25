@@ -2,6 +2,8 @@ import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/commo
 import { ConfigService } from '@nestjs/config';
 import { OutboxService } from '../outbox/outbox.service';
 import { RabbitMQService } from '../queue/rabbitmq.service';
+import { v4 as uuidv4 } from 'uuid';
+import { asyncLocalStorage } from '../common/logger/cls';
 
 @Injectable()
 export class OutboxRelayWorker implements OnModuleInit, OnModuleDestroy {
@@ -27,17 +29,28 @@ export class OutboxRelayWorker implements OnModuleInit, OnModuleDestroy {
     }
     this.running = true;
 
-    try {
-      const pending = await this.outboxService.findPending(50);
-      for (const event of pending) {
-        await this.rabbitMQService.publish(event.routingKey, event.payload);
-        await this.outboxService.markPublished(event.id);
+    asyncLocalStorage.run({ correlationId: uuidv4() }, async () => {
+      try {
+        const pending = await this.outboxService.findPending(50);
+        for (const event of pending) {
+          await asyncLocalStorage.run(
+            { correlationId: event.correlationId || uuidv4() },
+            async () => {
+              await this.rabbitMQService.publish(
+                event.routingKey,
+                event.payload,
+                asyncLocalStorage.getStore()?.correlationId,
+              );
+              await this.outboxService.markPublished(event.id);
+            },
+          );
+        }
+      } catch (error) {
+        this.logger.error(`Outbox relay failed: ${(error as Error).message}`);
+      } finally {
+        this.running = false;
       }
-    } catch (error) {
-      this.logger.error(`Outbox relay failed: ${(error as Error).message}`);
-    } finally {
-      this.running = false;
-    }
+    });
   }
 
   onModuleDestroy() {

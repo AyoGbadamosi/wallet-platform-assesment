@@ -35,10 +35,13 @@ export class RabbitMQService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  async publish(routingKey: string, payload: Record<string, unknown>): Promise<void> {
-    await this.channelWrapper.publish(this.exchange, routingKey, payload, {
-      persistent: true,
-    });
+  async publish(routingKey: string, payload: Record<string, unknown>, correlationId?: string): Promise<void> {
+    const options: any = { persistent: true };
+    if (correlationId) {
+      options.headers = { 'x-correlation-id': correlationId };
+    }
+    
+    await this.channelWrapper.publish(this.exchange, routingKey, payload, options);
     this.logger.log(`Published event ${routingKey}`);
   }
 

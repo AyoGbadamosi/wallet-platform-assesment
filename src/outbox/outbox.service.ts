@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Model } from 'mongoose';
 import { OutboxEvent, OutboxEventDocument, OutboxEventStatus } from './schemas/outbox-event.schema';
+import { asyncLocalStorage } from '../common/logger/cls';
 
 @Injectable()
 export class OutboxService {
@@ -10,8 +11,9 @@ export class OutboxService {
   ) {}
 
   async enqueue(routingKey: string, payload: Record<string, unknown>, session?: ClientSession) {
+    const correlationId = asyncLocalStorage.getStore()?.correlationId;
     const [event] = await this.outboxModel.create(
-      [{ routingKey, payload, status: OutboxEventStatus.PENDING }],
+      [{ routingKey, payload, status: OutboxEventStatus.PENDING, correlationId }],
       session ? { session } : undefined,
     );
     return event;

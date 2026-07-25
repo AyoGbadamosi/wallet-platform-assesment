@@ -16,6 +16,9 @@ export class OutboxEvent {
   @Prop({ type: Object, required: true })
   payload: Record<string, unknown>;
 
+  @Prop()
+  correlationId?: string;
+
   @Prop({ type: String, enum: OutboxEventStatus, default: OutboxEventStatus.PENDING })
   status: OutboxEventStatus;
 

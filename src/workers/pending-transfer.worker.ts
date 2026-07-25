@@ -4,6 +4,8 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Transfer, TransferDocument, TransferStatus } from '../wallets/schemas/transfer.schema';
 import { WalletsService } from '../wallets/wallets.service';
+import { v4 as uuidv4 } from 'uuid';
+import { asyncLocalStorage } from '../common/logger/cls';
 
 @Injectable()
 export class PendingTransferWorker implements OnModuleInit, OnModuleDestroy {
@@ -28,26 +30,28 @@ export class PendingTransferWorker implements OnModuleInit, OnModuleDestroy {
     if (this.isSweeping || this.transferModel.db.readyState !== 1) return;
     this.isSweeping = true;
 
-    try {
-      const timeoutMs = this.configService.getOrThrow<number>('workers.pendingTransferTimeoutMs');
-      const cutoff = new Date(Date.now() - timeoutMs);
+    asyncLocalStorage.run({ correlationId: uuidv4() }, async () => {
+      try {
+        const timeoutMs = this.configService.getOrThrow<number>('workers.pendingTransferTimeoutMs');
+        const cutoff = new Date(Date.now() - timeoutMs);
 
-      const stale = await this.transferModel
-        .find({ status: TransferStatus.PENDING, createdAt: { $lt: cutoff } })
-        .limit(50)
-        .exec();
+        const stale = await this.transferModel
+          .find({ status: TransferStatus.PENDING, createdAt: { $lt: cutoff } })
+          .limit(50)
+          .exec();
 
-      for (const transfer of stale) {
-        try {
-          await this.walletsService.refundTransfer(transfer._id.toString());
-          this.logger.log(`Refunded stuck transfer ${transfer._id}`);
-        } catch (error) {
-          this.logger.error(`Failed to refund transfer ${transfer._id}`, error);
+        for (const transfer of stale) {
+          try {
+            await this.walletsService.refundTransfer(transfer._id.toString());
+            this.logger.log(`Refunded stuck transfer ${transfer._id}`);
+          } catch (error) {
+            this.logger.error(`Failed to refund transfer ${transfer._id}`, error);
+          }
         }
+      } finally {
+        this.isSweeping = false;
       }
-    } finally {
-      this.isSweeping = false;
-    }
+    });
   }
 
   onModuleDestroy() {
