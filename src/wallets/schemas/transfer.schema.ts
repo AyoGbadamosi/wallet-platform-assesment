@@ -34,3 +34,6 @@ export class Transfer {
 }
 
 export const TransferSchema = SchemaFactory.createForClass(Transfer);
+
+TransferSchema.index({ idempotencyKey: 1 }, { unique: true, sparse: true });
+TransferSchema.index({ status: 1, createdAt: 1 });
