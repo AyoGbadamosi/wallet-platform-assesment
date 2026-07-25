@@ -26,12 +26,29 @@ export class RabbitMQService implements OnModuleInit, OnModuleDestroy {
 
     this.channelWrapper = this.connection.createChannel({
       json: true,
-      setup: (channel: ConfirmChannel) =>
-        Promise.all([
+      setup: (channel: ConfirmChannel) => {
+        const dlx = `${this.exchange}.dlx`;
+        const dlq = `${this.transferQueue}.dlq`;
+
+        return Promise.all([
+          // Main exchange
           channel.assertExchange(this.exchange, 'topic', { durable: true }),
-          channel.assertQueue(this.transferQueue, { durable: true }),
+          // Dead Letter Exchange
+          channel.assertExchange(dlx, 'direct', { durable: true }),
+          
+          // Main queue (routes rejected to DLX)
+          channel.assertQueue(this.transferQueue, {
+            durable: true,
+            deadLetterExchange: dlx,
+          }),
+          // Dead Letter Queue
+          channel.assertQueue(dlq, { durable: true }),
+          
+          // Bindings
           channel.bindQueue(this.transferQueue, this.exchange, 'transfer.*'),
-        ]),
+          channel.bindQueue(dlq, dlx, ''), // direct binding to DLX
+        ]);
+      },
     });
   }
 
