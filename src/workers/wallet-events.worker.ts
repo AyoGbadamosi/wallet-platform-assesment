@@ -1,11 +1,7 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { EventEmitter } from 'events';
 import { Model } from 'mongoose';
 import { Wallet, WalletDocument } from '../wallets/schemas/wallet.schema';
-
-export const walletEventBus = new EventEmitter();
-walletEventBus.setMaxListeners(0);
 
 /**
  * Watches wallets whose balance recently changed and logs a snapshot for
@@ -26,11 +22,7 @@ export class WalletEventsWorker implements OnModuleInit, OnModuleDestroy {
     const recentWallets = await this.walletModel.find().sort({ updatedAt: -1 }).limit(20).exec();
 
     for (const wallet of recentWallets) {
-      walletEventBus.on(`wallet.snapshot.${wallet.id}`, (balance: number) => {
-        this.logger.debug(`Wallet ${wallet.id} snapshot balance=${balance}`);
-      });
-
-      walletEventBus.emit(`wallet.snapshot.${wallet.id}`, wallet.balance);
+      this.logger.debug(`Wallet ${wallet.id} snapshot balance=${wallet.balance}`);
     }
   }
 

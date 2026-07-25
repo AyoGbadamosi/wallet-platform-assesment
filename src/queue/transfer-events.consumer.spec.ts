@@ -38,7 +38,10 @@ describe('TransferEventsConsumer', () => {
         },
         {
           provide: getConnectionToken(),
-          useValue: { startSession: jest.fn().mockResolvedValue(mockSession) },
+          useValue: { 
+            startSession: jest.fn().mockResolvedValue(mockSession),
+            readyState: 1
+          },
         },
         { provide: getModelToken(Transfer.name), useValue: transferModel },
         { provide: getModelToken(Wallet.name), useValue: walletModel },
