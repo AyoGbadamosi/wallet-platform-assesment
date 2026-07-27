@@ -93,28 +93,40 @@ export class WalletsService {
       }
     }
 
-    const wallet = await this.walletModel.findByIdAndUpdate(
-      id,
-      { $inc: { balance: dto.amount, version: 1 } },
-      { new: true },
-    );
+    const session = await this.connection.startSession();
+    try {
+      let finalWallet!: WalletDocument;
+      await session.withTransaction(async () => {
+        const wallet = await this.walletModel.findByIdAndUpdate(
+          id,
+          { $inc: { balance: dto.amount, version: 1 } },
+          { new: true, session },
+        );
 
-    if (!wallet) {
-      throw new NotFoundException(`Wallet ${id} not found`);
+        if (!wallet) {
+          throw new NotFoundException(`Wallet ${id} not found`);
+        }
+
+        const transaction = await this.transactionsService.create(
+          {
+            walletId: wallet.id,
+            type: TransactionType.DEPOSIT,
+            amount: dto.amount,
+            balanceAfter: wallet.balance,
+            reference: dto.reference,
+          },
+          session,
+        );
+
+        await this.ledgerService.recordCredit(wallet._id, transaction._id, dto.amount, wallet.balance, session);
+        finalWallet = wallet;
+      });
+
+      await this.redisService.invalidateBalance(id);
+      return finalWallet;
+    } finally {
+      await session.endSession();
     }
-
-    const transaction = await this.transactionsService.create({
-      walletId: wallet.id,
-      type: TransactionType.DEPOSIT,
-      amount: dto.amount,
-      balanceAfter: wallet.balance,
-      reference: dto.reference,
-    });
-
-    await this.ledgerService.recordCredit(wallet._id, transaction._id, dto.amount, wallet.balance);
-    await this.redisService.invalidateBalance(wallet.id);
-
-    return wallet;
   }
 
   async withdraw(id: string, dto: WithdrawDto) {
@@ -125,32 +137,44 @@ export class WalletsService {
       }
     }
 
-    const wallet = await this.walletModel.findOneAndUpdate(
-      { _id: id, balance: { $gte: dto.amount } },
-      { $inc: { balance: -dto.amount, version: 1 } },
-      { new: true },
-    );
+    const session = await this.connection.startSession();
+    try {
+      let finalWallet!: WalletDocument;
+      await session.withTransaction(async () => {
+        const wallet = await this.walletModel.findOneAndUpdate(
+          { _id: id, balance: { $gte: dto.amount } },
+          { $inc: { balance: -dto.amount, version: 1 } },
+          { new: true, session },
+        );
 
-    if (!wallet) {
-      const exists = await this.walletModel.findById(id);
-      if (!exists) {
-        throw new NotFoundException(`Wallet ${id} not found`);
-      }
-      throw new BadRequestException('Insufficient balance');
+        if (!wallet) {
+          const exists = await this.walletModel.findById(id).session(session);
+          if (!exists) {
+            throw new NotFoundException(`Wallet ${id} not found`);
+          }
+          throw new BadRequestException('Insufficient balance');
+        }
+
+        const transaction = await this.transactionsService.create(
+          {
+            walletId: wallet.id,
+            type: TransactionType.WITHDRAWAL,
+            amount: dto.amount,
+            balanceAfter: wallet.balance,
+            reference: dto.reference,
+          },
+          session,
+        );
+
+        await this.ledgerService.recordDebit(wallet._id, transaction._id, dto.amount, wallet.balance, session);
+        finalWallet = wallet;
+      });
+
+      await this.redisService.invalidateBalance(id);
+      return finalWallet;
+    } finally {
+      await session.endSession();
     }
-
-    const transaction = await this.transactionsService.create({
-      walletId: wallet.id,
-      type: TransactionType.WITHDRAWAL,
-      amount: dto.amount,
-      balanceAfter: wallet.balance,
-      reference: dto.reference,
-    });
-
-    await this.ledgerService.recordDebit(wallet._id, transaction._id, dto.amount, wallet.balance);
-    await this.redisService.invalidateBalance(wallet.id);
-
-    return wallet;
   }
 
   async transfer(dto: TransferDto) {
