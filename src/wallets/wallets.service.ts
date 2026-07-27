@@ -341,4 +341,23 @@ export class WalletsService {
       recentActivity,
     };
   }
+
+  async reconcile(id: string) {
+    const wallet = await this.walletModel.findById(id);
+    if (!wallet) {
+      throw new NotFoundException(`Wallet ${id} not found`);
+    }
+
+    const calculatedBalance = await this.ledgerService.computeBalanceFromLedger(id);
+    const matched = wallet.balance === calculatedBalance;
+    const difference = wallet.balance - calculatedBalance;
+
+    return {
+      walletId: id,
+      matched,
+      actualBalance: wallet.balance,
+      calculatedBalance,
+      difference,
+    };
+  }
 }

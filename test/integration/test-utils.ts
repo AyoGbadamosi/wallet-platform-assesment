@@ -9,9 +9,10 @@ import { AppModule } from '../../src/app.module';
 // These integration tests exercise the real Mongo/Redis/RabbitMQ stack started by
 // `docker-compose up -d mongo redis rabbitmq`. They are skipped implicitly if those
 // services are unreachable (the relevant `beforeAll` will throw and fail loudly).
-process.env.MONGODB_URI =
-  process.env.MONGODB_URI ||
-  'mongodb://localhost:27017/wallet-platform-integration?replicaSet=rs0&directConnection=true';
+// We forcefully hardcode the test database here. If we used `process.env.MONGODB_URI || ...`, 
+// IDEs or shells that auto-load `.env` would pass the development database string, 
+// causing the tests to permanently wipe the development database!
+process.env.MONGODB_URI = 'mongodb://localhost:27017/wallet-platform-integration?replicaSet=rs0&directConnection=true';
 process.env.REDIS_HOST = process.env.REDIS_HOST || 'localhost';
 process.env.REDIS_PORT = process.env.REDIS_PORT || '6379';
 process.env.RABBITMQ_URI = process.env.RABBITMQ_URI || 'amqp://guest:guest@localhost:5672';

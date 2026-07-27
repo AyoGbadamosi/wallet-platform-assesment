@@ -80,7 +80,7 @@ export class LedgerService {
    * reconciliation against the denormalized Wallet.balance field.
    */
   async computeBalanceFromLedger(walletId: string): Promise<number> {
-    return this.aggregateNetByWallet(walletId);
+    return await this.aggregateNetByWallet(walletId);
   }
 
   async aggregateNetByWallet(walletId: string): Promise<number> {
