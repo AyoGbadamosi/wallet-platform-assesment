@@ -360,4 +360,33 @@ export class WalletsService {
       difference,
     };
   }
+
+  async getAuditLogs(id: string, page: number, limit: number) {
+    const wallet = await this.walletModel.findById(id);
+    if (!wallet) {
+      throw new NotFoundException(`Wallet ${id} not found`);
+    }
+
+    const skip = (page - 1) * limit;
+
+    const [entries, total] = await Promise.all([
+      this.ledgerEntryModel
+        .find({ walletId: id })
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .exec(),
+      this.ledgerEntryModel.countDocuments({ walletId: id }),
+    ]);
+
+    return {
+      data: entries,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
 }

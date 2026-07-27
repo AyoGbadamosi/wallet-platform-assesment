@@ -1,10 +1,12 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CreateWalletDto } from './dto/create-wallet.dto';
 import { DepositDto } from './dto/deposit.dto';
 import { TransferDto } from './dto/transfer.dto';
 import { WithdrawDto } from './dto/withdraw.dto';
 import { WalletsService } from './wallets.service';
+
+import { AuditQueryDto } from './dto/audit-query.dto';
 
 @ApiBearerAuth()
 @ApiTags('wallets')
@@ -30,6 +32,11 @@ export class WalletsController {
   @Get(':id/dashboard')
   dashboard(@Param('id') id: string) {
     return this.walletsService.getDashboard(id);
+  }
+
+  @Get(':id/audit')
+  audit(@Param('id') id: string, @Query() query: AuditQueryDto) {
+    return this.walletsService.getAuditLogs(id, query.page, query.limit);
   }
 
   @Post(':id/deposit')
