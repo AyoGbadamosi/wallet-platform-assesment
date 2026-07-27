@@ -86,6 +86,13 @@ export class WalletsService {
   }
 
   async deposit(id: string, dto: DepositDto) {
+    if (dto.reference) {
+      const existing = await this.transactionsService.findByReference(dto.reference);
+      if (existing) {
+        return this.walletModel.findById(id);
+      }
+    }
+
     const wallet = await this.walletModel.findByIdAndUpdate(
       id,
       { $inc: { balance: dto.amount, version: 1 } },
@@ -111,6 +118,13 @@ export class WalletsService {
   }
 
   async withdraw(id: string, dto: WithdrawDto) {
+    if (dto.reference) {
+      const existing = await this.transactionsService.findByReference(dto.reference);
+      if (existing) {
+        return this.walletModel.findById(id);
+      }
+    }
+
     const wallet = await this.walletModel.findOneAndUpdate(
       { _id: id, balance: { $gte: dto.amount } },
       { $inc: { balance: -dto.amount, version: 1 } },
